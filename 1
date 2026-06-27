@@ -1,0 +1,59 @@
+-- ============================================================
+-- Orchestrator 2025 — post-upgrade verification queries
+-- Run on the SQL Server hosting the Orchestrator DB.
+-- Connect with the SAME SQL login Orchestrator uses.
+-- ============================================================
+
+-- ---------- 1. Connectivity & version ----------
+SELECT @@VERSION                          AS sql_version,
+       @@SERVERNAME                       AS server_name,
+       SERVERPROPERTY('ProductLevel')     AS patch_level,
+       SERVERPROPERTY('Edition')          AS edition;
+
+USE uipathpro;
+SELECT DB_NAME()    AS db_actual,
+       SUSER_NAME() AS login_actual,
+       USER_NAME()  AS user_en_bd;
+
+-- ---------- 2. Failed SQL Agent jobs (last 7 days) ----------
+USE msdb;
+SELECT TOP 50
+    j.name           AS job_name,
+    h.run_date,
+    h.run_time,
+    h.run_status,    -- 0=fail, 1=success, 2=retry, 3=cancel, 4=in progress
+    CASE h.run_status
+        WHEN 0 THEN 'Failed'
+        WHEN 1 THEN 'Succeeded'
+        WHEN 2 THEN 'Retry'
+        WHEN 3 THEN 'Canceled'
+        WHEN 4 THEN 'In progress'
+    END              AS status_text,
+    h.step_name,
+    h.message
+FROM sysjobs j
+JOIN sysjobhistory h ON j.job_id = h.job_id
+WHERE h.run_status <> 1
+  AND h.run_date >= CONVERT(int, CONVERT(varchar(8), DATEADD(day, -7, GETDATE()), 112))
+ORDER BY h.run_date DESC, h.run_time DESC;
+
+-- UiPath / Orchestrator-related jobs and whether they're enabled
+SELECT name, enabled, description
+FROM msdb.dbo.sysjobs
+WHERE name LIKE '%UiPath%' OR name LIKE '%Orchestrator%';
+
+-- ---------- 3. EF migrations — confirm 2025 schema is applied ----------
+USE uipathpro;
+SELECT TOP 10 *
+FROM __EFMigrationsHistory
+ORDER BY MigrationId DESC;
+-- Expected: top MigrationId starts with 2025...
+-- If "Invalid object name", try the legacy table:
+--   SELECT TOP 10 * FROM __MigrationHistory ORDER BY MigrationId DESC;
+
+-- ---------- 4. Sanity check on critical tables ----------
+SELECT COUNT(*) AS robots            FROM dbo.Robots;
+SELECT COUNT(*) AS folders           FROM dbo.OrganizationUnits;
+SELECT COUNT(*) AS releases          FROM dbo.Releases;
+SELECT COUNT(*) AS packages          FROM dbo.Packages;
+SELECT COUNT(*) AS package_versions  FROM dbo.PackageVersions;
