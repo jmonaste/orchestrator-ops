@@ -1,0 +1,13 @@
+SELECT TOP 20
+    [MigrationId],
+    [ContextKey],
+    [Model] AS model_blob_present
+FROM [uipathpro].[dbo].[__MigrationHistory]
+ORDER BY [MigrationId] DESC;
+
+
+
+
+SELECT [ContextKey], MAX([MigrationId]) AS latest_migration
+FROM [uipathpro].[dbo].[__MigrationHistory]
+GROUP BY [ContextKey];
